@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Test / generated PDFs
+test_*.pdf
+*_imposed.pdf
+output*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Cursor
+.cursor/
+
+# Screenshot
+screenshot.png
+
+layout_cards_gui.py
+layout_cards.py

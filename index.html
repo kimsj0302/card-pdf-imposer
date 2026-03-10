@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Card PDF Imposer / 카드 PDF 배치</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Card PDF Imposer</h1>
+      <p class="subtitle">카드 PDF를 지정 용지에 배치합니다 · Impose card PDFs onto sheets</p>
+    </header>
+
+    <main>
+      <form id="imposer-form" onsubmit="return false;">
+
+        <section class="form-section">
+          <h2>PDF 파일 File</h2>
+          <div class="form-row">
+            <label for="input-pdf">입력 PDF Input PDF</label>
+            <div class="file-input-wrapper">
+              <input type="file" id="input-pdf" accept=".pdf">
+              <span id="file-name" class="file-name">선택된 파일 없음 No file selected</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="output-name">출력 파일명 Output Name</label>
+            <input type="text" id="output-name" value="output_imposed.pdf">
+          </div>
+        </section>
+
+        <section class="form-section" id="copies-section" hidden>
+          <h2>페이지별 매수 Copies per Page</h2>
+          <div id="copies-list"></div>
+          <div class="form-row copies-bulk">
+            <label>전체 설정 Set All</label>
+            <div class="inline-controls">
+              <input type="number" id="set-all-copies" min="0" value="1" style="width:60px;">
+              <button type="button" id="apply-all-copies" class="btn-secondary">적용 Apply</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h2>카드 크기 Card Size</h2>
+          <div class="form-row">
+            <label for="card-width">카드 너비 Width (mm)</label>
+            <input type="number" id="card-width" step="0.1" value="63" placeholder="63">
+          </div>
+          <div class="form-row">
+            <label for="card-height">카드 높이 Height (mm)</label>
+            <input type="number" id="card-height" step="0.1" value="88" placeholder="88">
+          </div>
+          <p class="hint">비워두면 PDF 페이지 크기로 자동 감지 · Leave empty to auto-detect from PDF</p>
+        </section>
+
+        <section class="form-section">
+          <h2>여백 Margins</h2>
+          <div class="form-row">
+            <label for="margin">공통 여백 Margin (mm)</label>
+            <input type="number" id="margin" step="0.1" value="5.0">
+          </div>
+          <div class="form-row">
+            <label for="margin-x">좌우 여백 Margin X (mm)</label>
+            <input type="number" id="margin-x" step="0.1" placeholder="공통 여백 사용 Use margin">
+          </div>
+          <div class="form-row">
+            <label for="margin-y">상하 여백 Margin Y (mm)</label>
+            <input type="number" id="margin-y" step="0.1" placeholder="공통 여백 사용 Use margin">
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h2>레이아웃 Layout</h2>
+          <div class="form-row">
+            <label for="page-size">출력 용지 Page Size</label>
+            <select id="page-size">
+              <option value="A4" selected>A4 (210 × 297 mm)</option>
+              <option value="A3">A3 (297 × 420 mm)</option>
+              <option value="B4">B4 (250 × 353 mm)</option>
+              <option value="B5">B5 (176 × 250 mm)</option>
+              <option value="Letter">Letter (215.9 × 279.4 mm)</option>
+              <option value="Legal">Legal (215.9 × 355.6 mm)</option>
+              <option value="Custom">사용자 지정 Custom</option>
+            </select>
+          </div>
+          <div class="form-row" id="custom-size-row" hidden>
+            <label>용지 너비/높이 W × H (mm)</label>
+            <div class="inline-controls">
+              <input type="number" id="custom-page-w" step="0.1" value="210" style="width:80px;">
+              <span>×</span>
+              <input type="number" id="custom-page-h" step="0.1" value="297" style="width:80px;">
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="orientation">방향 Orientation</label>
+            <select id="orientation">
+              <option value="auto">자동 Auto</option>
+              <option value="portrait">세로 Portrait</option>
+              <option value="landscape">가로 Landscape</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="min-scale">최소 스케일 Min Scale</label>
+            <input type="number" id="min-scale" step="0.01" value="1.0">
+          </div>
+        </section>
+
+        <section class="form-section">
+          <h2>재단선 Cut Lines</h2>
+          <div class="form-row">
+            <label for="cutline-width">선 두께 Width (mm)</label>
+            <input type="number" id="cutline-width" step="0.01" value="0.2">
+          </div>
+          <div class="form-row">
+            <label for="cutline-style">선 스타일 Style</label>
+            <select id="cutline-style">
+              <option value="grid">격자 Grid</option>
+              <option value="ticks">틱 Ticks</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="cutline-length">틱 길이 Tick Length (mm)</label>
+            <input type="number" id="cutline-length" step="0.1" value="5.0">
+          </div>
+          <div class="form-row">
+            <label for="cutline-gap">틱 간격 Tick Gap (mm)</label>
+            <input type="number" id="cutline-gap" step="0.1" value="1.5">
+          </div>
+        </section>
+
+        <button type="button" id="generate-btn" class="btn-primary" disabled>
+          생성 Generate
+        </button>
+      </form>
+
+      <section class="output-section">
+        <h2>로그 Log</h2>
+        <pre id="log-area"></pre>
+        <div id="download-area" hidden>
+          <a id="download-link" class="btn-download">다운로드 Download PDF</a>
+        </div>
+        <div id="preview-section" hidden>
+          <h3>미리보기 Preview</h3>
+          <div class="preview-nav">
+            <button type="button" id="prev-page" class="btn-secondary" disabled>&lt; Prev</button>
+            <span id="page-indicator">1 / 1</span>
+            <button type="button" id="next-page" class="btn-secondary" disabled>Next &gt;</button>
+          </div>
+          <div class="preview-canvas-wrapper">
+            <canvas id="preview-canvas"></canvas>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>모든 처리는 브라우저에서 이루어집니다. 파일이 서버로 전송되지 않습니다.</p>
+      <p>Runs entirely in your browser. No files are uploaded to any server.</p>
+    </footer>
+  </div>
+
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
