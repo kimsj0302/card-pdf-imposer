@@ -65,6 +65,45 @@ function bestLayoutForPage(
   return best;
 }
 
+function normalizePageOrder(order, pageCount) {
+  const seen = new Set();
+  const out = [];
+  if (Array.isArray(order)) {
+    for (const i of order) {
+      if (typeof i !== "number" || i < 0 || i >= pageCount || seen.has(i)) continue;
+      seen.add(i);
+      out.push(i);
+    }
+  }
+  for (let i = 0; i < pageCount; i++) {
+    if (!seen.has(i)) out.push(i);
+  }
+  return out;
+}
+
+function buildFooterLines(font, text, size, maxW) {
+  const lines = [];
+  const paras = text.replace(/\r\n/g, "\n").split("\n");
+  for (const para of paras) {
+    const words = para.trim() ? para.split(/\s+/) : [];
+    if (words.length === 0) {
+      lines.push("");
+      continue;
+    }
+    let cur = "";
+    for (const word of words) {
+      const test = cur ? `${cur} ${word}` : word;
+      if (font.widthOfTextAtSize(test, size) <= maxW) cur = test;
+      else {
+        if (cur) lines.push(cur);
+        cur = word;
+      }
+    }
+    if (cur) lines.push(cur);
+  }
+  return lines.length ? lines : [text];
+}
+
 function chooseLayout(
   cardW, cardH, marginX, marginY, minScale, orientationMode, sheetW, sheetH
 ) {
@@ -98,7 +137,7 @@ function chooseLayout(
 // ─── PDF processing ──────────────────────────────────────────────────────────
 
 async function reflowPdf(pdfBytes, options, logFn) {
-  const { PDFDocument, rgb } = PDFLib;
+  const { PDFDocument, rgb, StandardFonts } = PDFLib;
 
   const srcDoc = await PDFDocument.load(pdfBytes);
   const srcPages = srcDoc.getPages();
@@ -139,10 +178,15 @@ async function reflowPdf(pdfBytes, options, logFn) {
     `/ per-sheet ${layout.perSheet} / scale ${layout.scale.toFixed(3)}`
   );
 
+  const pageOrder = normalizePageOrder(options.pageOrder, srcPages.length);
+  logFn(
+    `Page order (1-based): ${pageOrder.map((i) => i + 1).join(", ")}`
+  );
+
   const seq = [];
-  for (let i = 0; i < srcPages.length; i++) {
-    const n = options.pageCopies?.[i] ?? 1;
-    for (let c = 0; c < n; c++) seq.push(i);
+  for (const srcIdx of pageOrder) {
+    const n = options.pageCopies?.[srcIdx] ?? 1;
+    for (let c = 0; c < n; c++) seq.push(srcIdx);
   }
   logFn(`Total cards: ${seq.length} (${srcPages.length} unique pages)`);
   if (seq.length === 0) throw new Error("No cards to place (all copies are 0).");
@@ -152,8 +196,58 @@ async function reflowPdf(pdfBytes, options, logFn) {
   const allIndices = Array.from({ length: srcPages.length }, (_, i) => i);
   const embedded = await outDoc.embedPdf(srcDoc, allIndices);
 
+  const footerRaw = (options.footerText ?? "").trim();
+  const footerSize = Math.max(
+    4,
+    Math.min(24, parseNum(String(options.footerFontSizePt ?? 7), 7))
+  );
+  const maxFooterW = Math.max(24, layout.pageW - 2 * marginX - 8);
+  let footerFont = null;
+  let footerLines = [];
+  if (footerRaw) {
+    footerFont = await outDoc.embedFont(StandardFonts.Helvetica);
+    footerLines = buildFooterLines(footerFont, footerRaw, footerSize, maxFooterW);
+    const bottomGap =
+      layout.pageH - marginY - layout.rows * layout.slotH;
+    const lh = footerSize * 1.15;
+    const blockH = footerLines.length * lh + 14;
+    logFn(`Footer: ${footerLines.length} line(s) at sheet bottom (max width ~${maxFooterW.toFixed(0)} pt)`);
+    if (blockH > bottomGap - 4) {
+      logFn(
+        "Footer: 하단 여백이 좁습니다. 상하 여백을 늘리거나 문구를 줄이세요.\n" +
+        "Footer may overlap cards — increase vertical margin or shorten text."
+      );
+    }
+  }
+
   const lineColor = rgb(0, 0, 0);
   const flipY = (y) => layout.pageH - y;
+
+  function drawSheetFooter(page) {
+    if (!footerRaw || !footerFont) return;
+    const pageW = layout.pageW;
+    const maxW = maxFooterW;
+    const lh = footerSize * 1.15;
+    const padBottom = 8;
+    const textColor = rgb(0.18, 0.18, 0.18);
+    let baseline =
+      padBottom + footerSize * 0.28 + (footerLines.length - 1) * lh;
+    for (const ln of footerLines) {
+      const line = ln || " ";
+      const tw = footerFont.widthOfTextAtSize(line, footerSize);
+      let tx = (pageW - Math.min(tw, maxW)) / 2;
+      const minX = marginX + 4;
+      if (tx < minX) tx = minX;
+      page.drawText(line, {
+        x: tx,
+        y: baseline,
+        size: footerSize,
+        font: footerFont,
+        color: textColor,
+      });
+      baseline -= lh;
+    }
+  }
 
   function drawCutLines(page) {
     const topPdf = flipY(marginY);
@@ -212,7 +306,10 @@ async function reflowPdf(pdfBytes, options, logFn) {
 
   for (const srcIdx of seq) {
     if (curPage === null || slot >= layout.perSheet) {
-      if (curPage) drawCutLines(curPage);
+      if (curPage) {
+        drawCutLines(curPage);
+        drawSheetFooter(curPage);
+      }
       curPage = outDoc.addPage([layout.pageW, layout.pageH]);
       slot = 0;
     }
@@ -223,14 +320,19 @@ async function reflowPdf(pdfBytes, options, logFn) {
     const y = flipY(marginY + (row + 1) * layout.slotH);
 
     curPage.drawPage(embedded[srcIdx], {
-      x, y,
+      x,
+      y,
       width: layout.slotW,
       height: layout.slotH,
     });
+
     slot++;
   }
 
-  if (curPage) drawCutLines(curPage);
+  if (curPage) {
+    drawCutLines(curPage);
+    drawSheetFooter(curPage);
+  }
 
   const outBytes = await outDoc.save();
   logFn(`Done — ${outDoc.getPageCount()} output page(s)`);
@@ -242,6 +344,7 @@ async function reflowPdf(pdfBytes, options, logFn) {
 const $ = (sel) => document.querySelector(sel);
 let loadedPdfBytes = null;
 let srcPdfjsDoc = null;
+let dragSourceCopyRow = null;
 
 function log(msg) {
   const area = $("#log-area");
@@ -332,6 +435,47 @@ async function handleFileSelect(e) {
   }
 }
 
+function wireCopyListDrag(listEl) {
+  listEl.querySelectorAll(".copy-row").forEach((row) => {
+    const handle = row.querySelector(".copy-drag-handle");
+    if (!handle) return;
+
+    handle.addEventListener("dragstart", (e) => {
+      dragSourceCopyRow = row;
+      row.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", row.dataset.srcIdx || "");
+    });
+    handle.addEventListener("dragend", () => {
+      row.classList.remove("dragging");
+      listEl.querySelectorAll(".copy-row").forEach((r) => r.classList.remove("drag-over"));
+      dragSourceCopyRow = null;
+    });
+
+    row.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    });
+    row.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      if (dragSourceCopyRow && dragSourceCopyRow !== row) row.classList.add("drag-over");
+    });
+    row.addEventListener("dragleave", (e) => {
+      if (!row.contains(e.relatedTarget)) row.classList.remove("drag-over");
+    });
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      row.classList.remove("drag-over");
+      const src = dragSourceCopyRow;
+      if (!src || src === row) return;
+      const rect = row.getBoundingClientRect();
+      const afterMid = (e.clientY - rect.top) > rect.height / 2;
+      if (afterMid) listEl.insertBefore(src, row.nextSibling);
+      else listEl.insertBefore(src, row);
+    });
+  });
+}
+
 function buildCopiesList(pages, pdfjsDocObj) {
   const el = $("#copies-list");
   el.innerHTML = "";
@@ -339,6 +483,13 @@ function buildCopiesList(pages, pdfjsDocObj) {
   pages.forEach((p, i) => {
     const row = document.createElement("div");
     row.className = "copy-row";
+    row.dataset.srcIdx = String(i);
+
+    const handle = document.createElement("span");
+    handle.className = "copy-drag-handle";
+    handle.textContent = "⠿";
+    handle.draggable = true;
+    handle.title = "드래그하여 순서 변경 · Drag to reorder";
 
     const canvas = document.createElement("canvas");
     canvas.className = "copy-thumb";
@@ -364,13 +515,15 @@ function buildCopiesList(pages, pdfjsDocObj) {
     inp.dataset.idx = i;
     inp.className = "copy-input";
 
-    row.append(canvas, textWrap, inp);
+    row.append(handle, canvas, textWrap, inp);
     el.appendChild(row);
 
     if (pdfjsDocObj) {
       renderThumbnail(pdfjsDocObj, i + 1, canvas).catch(() => {});
     }
   });
+
+  wireCopyListDrag(el);
 }
 
 function applyAllCopies() {
@@ -386,6 +539,21 @@ function getPageCopies() {
     copies[parseInt(inp.dataset.idx, 10)] = parseInt(inp.value, 10) || 0;
   });
   return copies;
+}
+
+function getPageOrder() {
+  const order = [];
+  document.querySelectorAll("#copies-list .copy-row").forEach((row) => {
+    order.push(parseInt(row.dataset.srcIdx, 10));
+  });
+  return order;
+}
+
+function resetPageOrder() {
+  const list = $("#copies-list");
+  const rows = [...list.querySelectorAll(".copy-row")];
+  rows.sort((a, b) => parseInt(a.dataset.srcIdx, 10) - parseInt(b.dataset.srcIdx, 10));
+  rows.forEach((r) => list.appendChild(r));
 }
 
 // ─── Output preview (pdf.js) ────────────────────────────────────────────────
@@ -467,6 +635,9 @@ async function handleGenerate() {
       cutlineLengthMm: parseNum($("#cutline-length").value, 5.0),
       cutlineGapMm: parseNum($("#cutline-gap").value, 1.5),
       pageCopies: getPageCopies(),
+      pageOrder: getPageOrder(),
+      footerText: $("#footer-text").value,
+      footerFontSizePt: parseNum($("#footer-font-size").value, 7),
       sheetW,
       sheetH,
     };
@@ -496,6 +667,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#input-pdf").addEventListener("change", handleFileSelect);
   $("#generate-btn").addEventListener("click", handleGenerate);
   $("#apply-all-copies").addEventListener("click", applyAllCopies);
+  $("#reset-page-order").addEventListener("click", resetPageOrder);
 
   $("#page-size").addEventListener("change", () => {
     $("#custom-size-row").hidden = $("#page-size").value !== "Custom";
