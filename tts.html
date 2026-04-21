@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TTS Deck Export / TTS 덱 출력</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <header class="subpage-header">
+      <div>
+        <h1>TTS Deck Export</h1>
+        <p class="subtitle">Tabletop Simulator용 카드 시트 이미지를 생성합니다</p>
+      </div>
+      <a href="index.html">Back to PDF Imposer / PDF 배치로 돌아가기</a>
+    </header>
+
+    <main>
+      <section class="form-section">
+        <h2>PDF 파일 File</h2>
+        <div class="form-row">
+          <label for="tts-input-pdf">입력 PDF Input PDF</label>
+          <div class="file-input-wrapper">
+            <input type="file" id="tts-input-pdf" accept=".pdf">
+            <span id="tts-file-name" class="file-name">선택된 파일 없음 No file selected</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="form-section">
+        <h2>시트 설정 Sheet Settings</h2>
+        <div class="form-row">
+          <label for="grid-cols">가로 칸 수 Width</label>
+          <input type="number" id="grid-cols" min="1" max="10" value="10">
+        </div>
+        <div class="form-row">
+          <label for="grid-rows">세로 칸 수 Height</label>
+          <input type="number" id="grid-rows" min="1" max="7" value="7">
+        </div>
+        <div class="form-row">
+          <label for="tts-card-width">카드 너비 Width (mm)</label>
+          <input type="number" id="tts-card-width" step="0.1" placeholder="자동 Auto">
+        </div>
+        <div class="form-row">
+          <label for="tts-card-height">카드 높이 Height (mm)</label>
+          <input type="number" id="tts-card-height" step="0.1" placeholder="자동 Auto">
+        </div>
+        <p class="helper-text">비워두면 PDF 페이지 크기를 사용합니다. Leave blank to use PDF page size.</p>
+      </section>
+
+      <section class="form-section" id="page-role-section" hidden>
+        <h2>페이지 역할 Page Roles</h2>
+        <div id="role-list"></div>
+        <p class="helper-text">기본값은 Front입니다. 필요한 페이지만 Back Asset 또는 Exclude로 바꾸세요.</p>
+      </section>
+
+      <section class="form-section" id="front-mapping-section" hidden>
+        <h2>앞뒷면 매핑 Front-back Mapping</h2>
+        <div id="mapping-list"></div>
+        <p class="helper-text">각 Front 카드마다 Default Back 또는 특정 Back Asset 페이지를 선택하세요.</p>
+      </section>
+
+      <section class="form-section">
+        <button type="button" id="generate-tts-btn" class="btn-primary" disabled>
+          TTS 시트 생성 Generate TTS Sheets
+        </button>
+      </section>
+
+      <section class="output-section">
+        <h2>로그 Log</h2>
+        <pre id="tts-log-area"></pre>
+      </section>
+
+      <section id="tts-results" class="hidden">
+        <section class="guide-box">
+          <h3>TTS 입력 가이드 TTS Settings</h3>
+          <dl id="tts-guide-values"></dl>
+        </section>
+        <section class="results-grid" id="tts-result-list"></section>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="tts.js"></script>
+</body>
+</html>
