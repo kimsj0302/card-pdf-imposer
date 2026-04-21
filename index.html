@@ -35,13 +35,17 @@
         </section>
 
         <section class="form-section" id="copies-section" hidden>
-          <h2>페이지별 매수 Copies per Page</h2>
+          <h2>페이지 순서 · 매수 Order &amp; Copies</h2>
+          <p class="hint copies-order-hint">
+            행을 드래그해 입력 PDF 페이지 처리 순서를 바꿀 수 있습니다 · Drag rows to change imposition order
+          </p>
           <div id="copies-list"></div>
           <div class="form-row copies-bulk">
             <label>전체 설정 Set All</label>
             <div class="inline-controls">
               <input type="number" id="set-all-copies" min="0" value="1" style="width:60px;">
               <button type="button" id="apply-all-copies" class="btn-secondary">적용 Apply</button>
+              <button type="button" id="reset-page-order" class="btn-secondary">순서 초기화 Reset order</button>
             </div>
           </div>
         </section>
@@ -109,6 +113,19 @@
             <label for="min-scale">최소 스케일 Min Scale</label>
             <input type="number" id="min-scale" step="0.01" value="1.0">
           </div>
+        </section>
+
+        <section class="form-section">
+          <h2>하단 문구 Footer (출력 PDF 페이지)</h2>
+          <div class="form-row form-row-textarea">
+            <label for="footer-text">문구 Text</label>
+            <textarea id="footer-text" rows="2" placeholder="예: © 2025 Your Name — 비우면 표시 안 함"></textarea>
+          </div>
+          <div class="form-row">
+            <label for="footer-font-size">글자 크기 Font size (pt)</label>
+            <input type="number" id="footer-font-size" step="0.5" min="4" max="24" value="7">
+          </div>
+          <p class="hint">배치된 출력 PDF 각 페이지 맨 아래(여백)에 한 번씩 들어갑니다 · Once per output sheet, at the page bottom</p>
         </section>
 
         <section class="form-section">
