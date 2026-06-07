@@ -3,167 +3,195 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Card PDF Imposer / 카드 PDF 배치</title>
+  <title>Card Print Studio</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Card PDF Imposer</h1>
-      <p class="subtitle">카드 PDF를 지정 용지에 배치합니다 · Impose card PDFs onto sheets</p>
+      <h1>Card Print Studio</h1>
+      <p class="subtitle">Set card fronts and backs once, then export PnP PDFs and TTS deck sheets together.</p>
       <p class="nav-links">
-        <a href="tts.html">TTS Deck Export / TTS 덱 출력</a>
+        <a href="tts.html">Legacy TTS-only page</a>
       </p>
     </header>
 
     <main>
-      <form id="imposer-form" onsubmit="return false;">
-
+      <form id="studio-form" onsubmit="return false;">
         <section class="form-section">
-          <h2>PDF 파일 File</h2>
+          <div class="section-title-row">
+            <div>
+              <h2>1. Cards</h2>
+              <p class="helper-text">Load a card PDF, then drag pages into Front, Back Asset, or Exclude.</p>
+            </div>
+          </div>
+
           <div class="form-row">
-            <label for="input-pdf">입력 PDF Input PDF</label>
+            <label for="input-pdf">Input PDF</label>
             <div class="file-input-wrapper">
               <input type="file" id="input-pdf" accept=".pdf">
-              <span id="file-name" class="file-name">선택된 파일 없음 No file selected</span>
+              <span id="file-name" class="file-name">No file selected</span>
             </div>
           </div>
-          <div class="form-row">
-            <label for="output-name">출력 파일명 Output Name</label>
-            <input type="text" id="output-name" value="output_imposed.pdf">
+
+          <div id="page-role-section" hidden>
+            <div class="quick-actions">
+              <button type="button" id="mark-all-front" class="btn-secondary">All front</button>
+              <button type="button" id="mark-even-back" class="btn-secondary">Odd front / even back</button>
+            </div>
+            <div id="role-list" class="role-board"></div>
           </div>
         </section>
 
-        <section class="form-section" id="copies-section" hidden>
-          <h2>페이지 순서 · 매수 Order &amp; Copies</h2>
-          <p class="hint copies-order-hint">
-            행을 드래그해 입력 PDF 페이지 처리 순서를 바꿀 수 있습니다 · Drag rows to change imposition order
-          </p>
-          <div id="copies-list"></div>
+        <section class="form-section" id="front-mapping-section" hidden>
+          <h2>2. Front and Back Mapping</h2>
+          <p class="helper-text">Apply a back-matching rule first, then adjust only the exceptions below.</p>
+          <div class="mapping-tools">
+            <div class="form-row">
+              <label for="back-assignment-mode">Back matching</label>
+              <select id="back-assignment-mode">
+                <option value="default">Use default back for every card</option>
+                <option value="first-back">Use the first Back Asset for every card</option>
+                <option value="next-page">Use each front's next PDF page</option>
+                <option value="back-order">Match front order to Back Asset order</option>
+              </select>
+            </div>
+            <div class="form-row" id="single-back-row" hidden>
+              <label for="single-back-select">Back asset</label>
+              <select id="single-back-select"></select>
+            </div>
+            <button type="button" id="apply-back-assignment" class="btn-secondary">Apply matching rule</button>
+          </div>
+          <div id="mapping-list"></div>
           <div class="form-row copies-bulk">
-            <label>전체 설정 Set All</label>
+            <label>Set all copies</label>
             <div class="inline-controls">
-              <input type="number" id="set-all-copies" min="0" value="1" style="width:60px;">
-              <button type="button" id="apply-all-copies" class="btn-secondary">적용 Apply</button>
-              <button type="button" id="reset-page-order" class="btn-secondary">순서 초기화 Reset order</button>
+              <input type="number" id="set-all-copies" min="0" value="1" style="width:70px;">
+              <button type="button" id="apply-all-copies" class="btn-secondary">Apply</button>
             </div>
           </div>
         </section>
 
-        <section class="form-section">
-          <h2>카드 크기 Card Size</h2>
-          <div class="form-row">
-            <label for="card-width">카드 너비 Width (mm)</label>
-            <input type="number" id="card-width" step="0.1" value="63" placeholder="63">
-          </div>
-          <div class="form-row">
-            <label for="card-height">카드 높이 Height (mm)</label>
-            <input type="number" id="card-height" step="0.1" value="88" placeholder="88">
-          </div>
-          <p class="hint">비워두면 PDF 페이지 크기로 자동 감지 · Leave empty to auto-detect from PDF</p>
-        </section>
+        <section class="form-section settings-panel" id="export-settings" hidden>
+          <h2>3. Output Settings</h2>
 
-        <section class="form-section">
-          <h2>여백 Margins</h2>
-          <div class="form-row">
-            <label for="margin">공통 여백 Margin (mm)</label>
-            <input type="number" id="margin" step="0.1" value="5.0">
-          </div>
-          <div class="form-row">
-            <label for="margin-x">좌우 여백 Margin X (mm)</label>
-            <input type="number" id="margin-x" step="0.1" placeholder="공통 여백 사용 Use margin">
-          </div>
-          <div class="form-row">
-            <label for="margin-y">상하 여백 Margin Y (mm)</label>
-            <input type="number" id="margin-y" step="0.1" placeholder="공통 여백 사용 Use margin">
-          </div>
-        </section>
+          <div class="settings-grid">
+            <section class="settings-group">
+              <h3>Shared Card Size</h3>
+              <div class="form-row">
+                <label for="card-width">Width (mm)</label>
+                <input type="number" id="card-width" step="0.1" value="" placeholder="Auto">
+              </div>
+              <div class="form-row">
+                <label for="card-height">Height (mm)</label>
+                <input type="number" id="card-height" step="0.1" value="" placeholder="Auto">
+              </div>
+              <p class="hint" id="card-size-hint">Auto uses 63 x 88. Landscape PDF pages are rotated into portrait cards.</p>
+            </section>
 
-        <section class="form-section">
-          <h2>레이아웃 Layout</h2>
-          <div class="form-row">
-            <label for="page-size">출력 용지 Page Size</label>
-            <select id="page-size">
-              <option value="A4" selected>A4 (210 × 297 mm)</option>
-              <option value="A3">A3 (297 × 420 mm)</option>
-              <option value="B4">B4 (250 × 353 mm)</option>
-              <option value="B5">B5 (176 × 250 mm)</option>
-              <option value="Letter">Letter (215.9 × 279.4 mm)</option>
-              <option value="Legal">Legal (215.9 × 355.6 mm)</option>
-              <option value="Custom">사용자 지정 Custom</option>
-            </select>
-          </div>
-          <div class="form-row" id="custom-size-row" hidden>
-            <label>용지 너비/높이 W × H (mm)</label>
-            <div class="inline-controls">
-              <input type="number" id="custom-page-w" step="0.1" value="210" style="width:80px;">
-              <span>×</span>
-              <input type="number" id="custom-page-h" step="0.1" value="297" style="width:80px;">
-            </div>
-          </div>
-          <div class="form-row">
-            <label for="orientation">방향 Orientation</label>
-            <select id="orientation">
-              <option value="auto">자동 Auto</option>
-              <option value="portrait">세로 Portrait</option>
-              <option value="landscape">가로 Landscape</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label for="min-scale">최소 스케일 Min Scale</label>
-            <input type="number" id="min-scale" step="0.01" value="1.0">
-          </div>
-        </section>
+            <section class="settings-group">
+              <h3>PnP PDF</h3>
+              <div class="form-row">
+                <label for="output-prefix">File prefix</label>
+                <input type="text" id="output-prefix" value="cards">
+              </div>
+              <div class="form-row">
+                <label for="page-size">Page size</label>
+                <select id="page-size">
+                  <option value="A4" selected>A4 (210 x 297 mm)</option>
+                  <option value="A3">A3 (297 x 420 mm)</option>
+                  <option value="B4">B4 (250 x 353 mm)</option>
+                  <option value="B5">B5 (176 x 250 mm)</option>
+                  <option value="Letter">Letter (215.9 x 279.4 mm)</option>
+                  <option value="Legal">Legal (215.9 x 355.6 mm)</option>
+                  <option value="Custom">Custom</option>
+                </select>
+              </div>
+              <div class="form-row" id="custom-size-row" hidden>
+                <label>Custom W x H</label>
+                <div class="inline-controls">
+                  <input type="number" id="custom-page-w" step="0.1" value="210" style="width:80px;">
+                  <span>x</span>
+                  <input type="number" id="custom-page-h" step="0.1" value="297" style="width:80px;">
+                </div>
+              </div>
+              <div class="form-row">
+                <label for="orientation">Orientation</label>
+                <select id="orientation">
+                  <option value="auto">Auto</option>
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label for="margin">Margin (mm)</label>
+                <input type="number" id="margin" step="0.1" value="5.0">
+              </div>
+              <div class="form-row">
+                <label for="min-scale">Min scale</label>
+                <input type="number" id="min-scale" step="0.01" value="1.0">
+              </div>
+              <div class="form-row">
+                <label for="cutline-style">Cut lines</label>
+                <select id="cutline-style">
+                  <option value="grid">Grid</option>
+                  <option value="ticks">Ticks</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label for="cutline-width">Line width (mm)</label>
+                <input type="number" id="cutline-width" step="0.01" value="0.2">
+              </div>
+              <div class="form-row form-row-textarea">
+                <label for="footer-text">Footer text</label>
+                <textarea id="footer-text" rows="3" placeholder="License, copyright, or print note"></textarea>
+              </div>
+              <div class="form-row">
+                <label for="footer-font-size">Footer size (pt)</label>
+                <input type="number" id="footer-font-size" step="0.5" min="4" max="24" value="7">
+              </div>
+            </section>
 
-        <section class="form-section">
-          <h2>하단 문구 Footer (출력 PDF 페이지)</h2>
-          <div class="form-row form-row-textarea">
-            <label for="footer-text">문구 Text</label>
-            <textarea id="footer-text" rows="2" placeholder="예: © 2025 Your Name — 비우면 표시 안 함"></textarea>
-          </div>
-          <div class="form-row">
-            <label for="footer-font-size">글자 크기 Font size (pt)</label>
-            <input type="number" id="footer-font-size" step="0.5" min="4" max="24" value="7">
-          </div>
-          <p class="hint">배치된 출력 PDF 각 페이지 맨 아래(여백)에 한 번씩 들어갑니다 · Once per output sheet, at the page bottom</p>
-        </section>
-
-        <section class="form-section">
-          <h2>재단선 Cut Lines</h2>
-          <div class="form-row">
-            <label for="cutline-width">선 두께 Width (mm)</label>
-            <input type="number" id="cutline-width" step="0.01" value="0.2">
-          </div>
-          <div class="form-row">
-            <label for="cutline-style">선 스타일 Style</label>
-            <select id="cutline-style">
-              <option value="grid">격자 Grid</option>
-              <option value="ticks">틱 Ticks</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label for="cutline-length">틱 길이 Tick Length (mm)</label>
-            <input type="number" id="cutline-length" step="0.1" value="5.0">
-          </div>
-          <div class="form-row">
-            <label for="cutline-gap">틱 간격 Tick Gap (mm)</label>
-            <input type="number" id="cutline-gap" step="0.1" value="1.5">
+            <section class="settings-group">
+              <h3>TTS Sheets</h3>
+              <div class="form-row">
+                <label for="grid-cols">Width</label>
+                <input type="number" id="grid-cols" min="1" max="10" value="10">
+              </div>
+              <div class="form-row">
+                <label for="grid-rows">Height</label>
+                <input type="number" id="grid-rows" min="1" max="7" value="7">
+              </div>
+              <p class="hint">PNG sheets are rendered at 4096 px wide for Tabletop Simulator.</p>
+            </section>
           </div>
         </section>
 
         <button type="button" id="generate-btn" class="btn-primary" disabled>
-          생성 Generate
+          Generate PnP PDFs and TTS Sheets
         </button>
       </form>
 
       <section class="output-section">
-        <h2>로그 Log</h2>
+        <h2>Log</h2>
         <pre id="log-area"></pre>
-        <div id="download-area" hidden>
-          <a id="download-link" class="btn-download">다운로드 Download PDF</a>
+
+        <div id="download-area" class="download-grid" hidden>
+          <a id="pnp-pdf-link" class="btn-download">Download PnP PDF</a>
+          <a id="card-info-link" class="btn-download">Download card info PNG</a>
+          <a id="save-all-link" class="btn-download">Save all ZIP</a>
         </div>
+
+        <div id="tts-results" class="hidden">
+          <section class="guide-box">
+            <h3>TTS Settings</h3>
+            <dl id="tts-guide-values"></dl>
+          </section>
+          <section class="results-grid" id="tts-result-list"></section>
+        </div>
+
         <div id="preview-section" hidden>
-          <h3>미리보기 Preview</h3>
+          <h3>PnP Preview</h3>
           <div class="preview-nav">
             <button type="button" id="prev-page" class="btn-secondary" disabled>&lt; Prev</button>
             <span id="page-indicator">1 / 1</span>
@@ -177,7 +205,6 @@
     </main>
 
     <footer>
-      <p>모든 처리는 브라우저에서 이루어집니다. 파일이 서버로 전송되지 않습니다.</p>
       <p>Runs entirely in your browser. No files are uploaded to any server.</p>
     </footer>
   </div>
