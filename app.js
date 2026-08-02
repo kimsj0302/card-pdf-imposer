@@ -31,6 +31,8 @@ let cardSizeTouched = false;
 let draggedPageNumber = null;
 let defaultBackImagePromise = null;
 let defaultBackBytesPromise = null;
+let loadedPdfName = "";
+let pendingImposeConfig = null;
 
 function mmToPt(mm) {
   return mm * MM_TO_PT;
@@ -227,6 +229,10 @@ function getPagesByRole(role) {
   return pageInfos.filter((info) => info.role === role);
 }
 
+function getFrontPages() {
+  return pageInfos.filter((info) => info.role === "front" || info.role === "front-no-back");
+}
+
 function getPageSizePt() {
   const selected = $("#page-size").value;
   if (selected === "Custom") {
@@ -255,7 +261,7 @@ function getCardSizeMm() {
     };
   }
 
-  const firstActive = getPagesByRole("front")[0] || getPagesByRole("back")[0] || pageInfos[0];
+  const firstActive = getFrontPages()[0] || getPagesByRole("back")[0] || pageInfos[0];
   if (!firstActive) throw new Error("No active pages are available.");
   return {
     ...inferStandardCardSize(firstActive),
@@ -269,7 +275,7 @@ function inferStandardCardSize(pageInfo) {
 
 function updateAutoCardSize(force = false) {
   if (cardSizeTouched && !force) return;
-  const firstActive = getPagesByRole("front")[0] || getPagesByRole("back")[0] || pageInfos[0];
+  const firstActive = getFrontPages()[0] || getPagesByRole("back")[0] || pageInfos[0];
   if (!firstActive) return;
   const { widthMm, heightMm } = inferStandardCardSize(firstActive);
   $("#card-width").value = String(widthMm);
@@ -575,7 +581,9 @@ async function fillMappingThumb(container, asset) {
   const label = container.querySelector("span")?.textContent || "";
   container.innerHTML = "";
   let canvas;
-  if (asset.type === "defaultBack") {
+  if (asset.type === "noBack") {
+    canvas = drawNoBackCanvas(64, 90);
+  } else if (asset.type === "defaultBack") {
     canvas = await drawDefaultBackCanvas(64, 90);
   } else {
     canvas = await renderThumbnail(asset.pageIndex + 1, 96);
@@ -610,6 +618,24 @@ function drawFallbackBackCanvas(cardWidthPx, cardHeightPx) {
   return canvas;
 }
 
+function drawNoBackCanvas(cardWidthPx, cardHeightPx) {
+  const canvas = document.createElement("canvas");
+  canvas.width = cardWidthPx;
+  canvas.height = cardHeightPx;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#cbd5e1";
+  ctx.setLineDash([6, 5]);
+  ctx.strokeRect(1, 1, canvas.width - 2, canvas.height - 2);
+  ctx.fillStyle = "#64748b";
+  ctx.font = `600 ${Math.max(10, Math.round(cardWidthPx * 0.12))}px Arial`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("NO BACK", canvas.width / 2, canvas.height / 2);
+  return canvas;
+}
+
 async function drawDefaultBackCanvas(cardWidthPx, cardHeightPx) {
   try {
     const image = await loadDefaultBackImage();
@@ -635,6 +661,10 @@ async function drawDefaultBackCanvas(cardWidthPx, cardHeightPx) {
 async function renderAssetCanvas(asset, cardWidthPx, cardHeightPx) {
   const renderWidthPx = Math.max(1, Math.round(cardWidthPx * CARD_RENDER_SUPERSAMPLE));
   const renderHeightPx = Math.max(1, Math.round(cardHeightPx * CARD_RENDER_SUPERSAMPLE));
+
+  if (asset.type === "noBack") {
+    return drawNoBackCanvas(renderWidthPx, renderHeightPx);
+  }
 
   if (asset.type === "defaultBack") {
     return drawDefaultBackCanvas(renderWidthPx, renderHeightPx);
@@ -699,11 +729,17 @@ async function renderSheetImages(assets, options) {
 function recalculateFrontMappings() {
   const previousMap = new Map(frontMappings.map((mapping) => [mapping.sourcePageNumber, mapping]));
   const backPages = getPagesByRole("back");
-  const validBackRefs = new Set(["default", ...backPages.map((info) => `back:${info.pageNumber}`)]);
+  const validBackRefs = new Set(backPages.map((info) => `back:${info.pageNumber}`));
+  const fallbackBackRef = backPages[0] ? `back:${backPages[0].pageNumber}` : "unassigned";
 
-  frontMappings = getPagesByRole("front").map((info, index) => {
+  frontMappings = getFrontPages().map((info, index) => {
     const previous = previousMap.get(info.pageNumber);
-    const backRef = previous && validBackRefs.has(previous.backRef) ? previous.backRef : "default";
+    const backRef =
+      info.role === "front-no-back"
+        ? "none"
+        : previous && validBackRefs.has(previous.backRef)
+          ? previous.backRef
+          : fallbackBackRef;
     return {
       frontIndex: index + 1,
       sourcePageNumber: info.pageNumber,
@@ -715,60 +751,10 @@ function recalculateFrontMappings() {
 }
 
 function getBackRefLabel(backRef) {
-  if (backRef === "default") return "Default Back";
+  if (backRef === "none") return "No Back";
+  if (backRef === "unassigned") return "Select Back Asset";
   const pageNumber = Number.parseInt(backRef.replace("back:", ""), 10);
   return `Back Asset Page ${pageNumber}`;
-}
-
-function refreshBackAssetControls() {
-  const backPages = getPagesByRole("back");
-  const singleBackSelect = $("#single-back-select");
-  singleBackSelect.innerHTML = "";
-
-  if (backPages.length === 0) {
-    const option = document.createElement("option");
-    option.value = "default";
-    option.textContent = "No Back Asset pages selected";
-    singleBackSelect.appendChild(option);
-  } else {
-    backPages.forEach((info) => {
-      const option = document.createElement("option");
-      option.value = `back:${info.pageNumber}`;
-      option.textContent = `Back Asset Page ${info.pageNumber}`;
-      singleBackSelect.appendChild(option);
-    });
-  }
-
-  const mode = $("#back-assignment-mode").value;
-  $("#single-back-row").hidden = mode !== "first-back";
-}
-
-function applyBackAssignmentMode() {
-  const mode = $("#back-assignment-mode").value;
-  const backPages = getPagesByRole("back");
-
-  if (mode === "default") {
-    frontMappings.forEach((mapping) => {
-      mapping.backRef = "default";
-    });
-  } else if (mode === "first-back") {
-    const backRef = $("#single-back-select").value || (backPages[0] ? `back:${backPages[0].pageNumber}` : "default");
-    frontMappings.forEach((mapping) => {
-      mapping.backRef = backRef;
-    });
-  } else if (mode === "next-page") {
-    frontMappings.forEach((mapping) => {
-      const nextPage = pageInfos[mapping.pageIndex + 1];
-      mapping.backRef = nextPage?.role === "back" ? `back:${nextPage.pageNumber}` : "default";
-    });
-  } else if (mode === "back-order") {
-    frontMappings.forEach((mapping, index) => {
-      const backPage = backPages[index] || backPages[backPages.length - 1];
-      mapping.backRef = backPage ? `back:${backPage.pageNumber}` : "default";
-    });
-  }
-
-  renderFrontMappingList();
 }
 
 async function renderRoleList() {
@@ -776,9 +762,10 @@ async function renderRoleList() {
   board.innerHTML = "";
 
   const roles = [
-    { value: "front", title: "Front", note: "Cards to print and export" },
-    { value: "back", title: "Back Asset", note: "Pages used as card backs" },
-    { value: "exclude", title: "Exclude", note: "Ignored pages" },
+    { value: "front", title: "Front" },
+    { value: "front-no-back", title: "Front (No Back)" },
+    { value: "back", title: "Back Asset" },
+    { value: "exclude", title: "Exclude" },
   ];
 
   roles.forEach((role) => {
@@ -809,10 +796,7 @@ async function renderRoleList() {
     count.className = "role-count";
     count.textContent = String(getPagesByRole(role.value).length);
 
-    const note = document.createElement("p");
-    note.textContent = role.note;
-
-    header.append(title, count, note);
+    header.append(title, count);
     column.appendChild(header);
 
     const list = document.createElement("div");
@@ -824,13 +808,14 @@ async function renderRoleList() {
   });
 
   for (const info of pageInfos) {
-    const thumbCanvas = await renderThumbnail(info.pageNumber);
+    const thumbCanvas = await renderThumbnail(info.pageNumber, 180);
     thumbCanvas.className = "copy-thumb";
 
     const row = document.createElement("div");
     row.className = "role-card";
     row.draggable = true;
     row.dataset.pageNumber = String(info.pageNumber);
+    row.setAttribute("aria-label", `PDF page ${info.pageNumber}`);
     row.addEventListener("dragstart", (event) => {
       draggedPageNumber = info.pageNumber;
       row.classList.add("dragging");
@@ -845,17 +830,7 @@ async function renderRoleList() {
       });
     });
 
-    const meta = document.createElement("div");
-    meta.className = "role-meta";
-
-    const title = document.createElement("strong");
-    title.textContent = `Page ${info.pageNumber}`;
-
-    const size = document.createElement("span");
-    size.textContent = formatPageSize(info);
-
-    meta.append(title, size);
-    row.append(thumbCanvas, meta);
+    row.appendChild(thumbCanvas);
     board.querySelector(`.role-column-list[data-role="${info.role}"]`).appendChild(row);
   }
 }
@@ -864,43 +839,51 @@ function movePageToRole(pageNumber, role) {
   const info = pageInfos.find((item) => item.pageNumber === pageNumber);
   if (!info || info.role === role) return;
   info.role = role;
+
+  const row = document.querySelector(`.role-card[data-page-number="${pageNumber}"]`);
+  const targetList = document.querySelector(`.role-column-list[data-role="${role}"]`);
+  if (row && targetList) {
+    const nextRow = Array.from(targetList.querySelectorAll(".role-card")).find(
+      (candidate) => Number.parseInt(candidate.dataset.pageNumber, 10) > pageNumber
+    );
+    targetList.insertBefore(row, nextRow || null);
+  }
+  document.querySelectorAll(".role-column").forEach((column) => {
+    const count = column.querySelector(".role-count");
+    if (count) count.textContent = String(getPagesByRole(column.dataset.role).length);
+    column.classList.remove("drag-over");
+  });
+
   recalculateFrontMappings();
-  refreshBackAssetControls();
   updateAutoCardSize();
-  renderRoleList().then(renderFrontMappingList);
+  renderFrontMappingList();
+  renderCopiesList();
 }
 
 function renderFrontMappingList() {
   const list = $("#mapping-list");
   list.innerHTML = "";
-  refreshBackAssetControls();
 
   const backPages = getPagesByRole("back");
-  if (frontMappings.length === 0) {
+  const visibleMappings = frontMappings.filter((mapping) => mapping.backRef !== "none");
+  if (visibleMappings.length === 0) {
     const empty = document.createElement("p");
     empty.className = "helper-text";
-    empty.textContent = "No front pages selected.";
+    empty.textContent = "No mappings.";
     list.appendChild(empty);
     return;
   }
 
-  frontMappings.forEach((mapping) => {
-    const sourceInfo = pageInfos[mapping.pageIndex];
+  visibleMappings.forEach((mapping) => {
     const row = document.createElement("div");
     row.className = "mapping-row";
-
-    const index = document.createElement("div");
-    index.className = "mapping-index";
-    index.textContent = `Front #${mapping.frontIndex}`;
 
     const pair = document.createElement("div");
     pair.className = "mapping-pair";
 
     const frontPreview = document.createElement("div");
     frontPreview.className = "mapping-thumb";
-    const frontCaption = document.createElement("span");
-    frontCaption.textContent = `Page ${mapping.sourcePageNumber}`;
-    frontPreview.appendChild(frontCaption);
+    frontPreview.title = "Front";
 
     const arrow = document.createElement("div");
     arrow.className = "mapping-arrow";
@@ -908,36 +891,25 @@ function renderFrontMappingList() {
 
     const backPreview = document.createElement("div");
     backPreview.className = "mapping-thumb";
-    const backCaption = document.createElement("span");
-    backCaption.textContent = getBackRefLabel(mapping.backRef);
-    backPreview.appendChild(backCaption);
+    backPreview.title = getBackRefLabel(mapping.backRef);
 
     pair.append(frontPreview, arrow, backPreview);
     fillMappingThumb(frontPreview, { type: "pdf", pageIndex: mapping.pageIndex }).catch(() => {});
-    fillMappingThumb(
-      backPreview,
-      mapping.backRef === "default"
-        ? { type: "defaultBack" }
-        : { type: "pdf", pageIndex: Number.parseInt(mapping.backRef.replace("back:", ""), 10) - 1 }
-    ).catch(() => {});
-
-    const meta = document.createElement("div");
-    meta.className = "mapping-meta";
-    const title = document.createElement("strong");
-    title.textContent = `Page ${mapping.sourcePageNumber}`;
-    const sub = document.createElement("span");
-    sub.textContent = formatPageSize(sourceInfo);
-    const backSummary = document.createElement("span");
-    backSummary.textContent = `Back: ${getBackRefLabel(mapping.backRef)}`;
-    meta.append(title, sub);
-    meta.append(backSummary);
+    if (mapping.backRef !== "unassigned") {
+      fillMappingThumb(backPreview, {
+        type: "pdf",
+        pageIndex: Number.parseInt(mapping.backRef.replace("back:", ""), 10) - 1,
+      }).catch(() => {});
+    }
 
     const select = document.createElement("select");
     select.className = "mapping-select";
-    const defaultOption = document.createElement("option");
-    defaultOption.value = "default";
-    defaultOption.textContent = "Default Back";
-    select.appendChild(defaultOption);
+    select.setAttribute("aria-label", `Back asset for front ${mapping.frontIndex}`);
+    const placeholderOption = document.createElement("option");
+    placeholderOption.value = "unassigned";
+    placeholderOption.textContent = "Select Back Asset";
+    placeholderOption.disabled = true;
+    select.appendChild(placeholderOption);
     backPages.forEach((info) => {
       const option = document.createElement("option");
       option.value = `back:${info.pageNumber}`;
@@ -950,19 +922,155 @@ function renderFrontMappingList() {
       renderFrontMappingList();
     });
 
-    const copies = document.createElement("input");
-    copies.type = "number";
-    copies.min = "0";
-    copies.value = String(mapping.copies);
-    copies.className = "copy-input";
-    copies.addEventListener("change", () => {
-      mapping.copies = Math.max(0, parsePositiveInt(copies.value, 0));
-      copies.value = String(mapping.copies);
-    });
-
-    row.append(index, pair, meta, select, copies);
+    row.append(pair, select);
     list.appendChild(row);
   });
+}
+
+function renderCopiesList() {
+  const list = $("#copies-list");
+  list.innerHTML = "";
+
+  frontMappings.forEach((mapping) => {
+    const card = document.createElement("div");
+    card.className = "copies-card";
+
+    const preview = document.createElement("div");
+    preview.className = "copies-thumb";
+    fillMappingThumb(preview, { type: "pdf", pageIndex: mapping.pageIndex }).catch(() => {});
+
+    const control = document.createElement("div");
+    control.className = "copies-control";
+    const multiply = document.createElement("span");
+    multiply.textContent = "×";
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.value = String(mapping.copies);
+    input.className = "copy-input";
+    input.setAttribute("aria-label", `Copies for card ${mapping.frontIndex}`);
+    input.addEventListener("change", () => {
+      mapping.copies = Math.max(0, parsePositiveInt(input.value, 0));
+      input.value = String(mapping.copies);
+    });
+
+    control.append(multiply, input);
+    card.append(preview, control);
+    list.appendChild(card);
+  });
+}
+
+function buildImposeConfig() {
+  const settingIds = [
+    "card-width",
+    "card-height",
+    "output-prefix",
+    "page-size",
+    "custom-page-w",
+    "custom-page-h",
+    "orientation",
+    "margin",
+    "min-scale",
+    "cutline-style",
+    "cutline-width",
+    "footer-text",
+    "footer-font-size",
+    "grid-cols",
+    "grid-rows",
+  ];
+  const settings = Object.fromEntries(settingIds.map((id) => [id, $(`#${id}`).value]));
+
+  return {
+    version: 1,
+    pdfName: loadedPdfName,
+    pageCount: pageInfos.length,
+    pages: pageInfos.map(({ pageNumber, role }) => ({ pageNumber, role })),
+    cards: frontMappings.map((mapping) => ({
+      sourcePageNumber: mapping.sourcePageNumber,
+      backPageNumber: mapping.backRef.startsWith("back:")
+        ? Number.parseInt(mapping.backRef.replace("back:", ""), 10)
+        : null,
+      copies: mapping.copies,
+    })),
+    settings,
+  };
+}
+
+async function applyImposeConfig(config) {
+  if (!config || typeof config !== "object" || config.version !== 1) {
+    throw new Error("Unsupported impose JSON format.");
+  }
+  if (config.pageCount !== pageInfos.length) {
+    throw new Error(`This JSON expects ${config.pageCount} PDF pages, but the loaded PDF has ${pageInfos.length}.`);
+  }
+
+  const allowedRoles = new Set(["front", "front-no-back", "back", "exclude"]);
+  const savedPages = new Map((config.pages || []).map((page) => [page.pageNumber, page]));
+  pageInfos.forEach((info) => {
+    const savedRole = savedPages.get(info.pageNumber)?.role;
+    info.role = allowedRoles.has(savedRole) ? savedRole : "front-no-back";
+  });
+
+  recalculateFrontMappings();
+  const savedCards = new Map((config.cards || []).map((card) => [card.sourcePageNumber, card]));
+  frontMappings.forEach((mapping) => {
+    const saved = savedCards.get(mapping.sourcePageNumber);
+    if (saved && Number.isInteger(saved.copies) && saved.copies >= 0) mapping.copies = saved.copies;
+    if (mapping.backRef === "none") return;
+    const savedBack = pageInfos.find(
+      (info) => info.pageNumber === saved?.backPageNumber && info.role === "back"
+    );
+    mapping.backRef = savedBack ? `back:${savedBack.pageNumber}` : "unassigned";
+  });
+
+  Object.entries(config.settings || {}).forEach(([id, value]) => {
+    const element = $(`#${id}`);
+    if (element && value != null) element.value = String(value);
+  });
+  cardSizeTouched = Boolean(config.settings?.["card-width"] && config.settings?.["card-height"]);
+  $("#custom-size-row").hidden = $("#page-size").value !== "Custom";
+
+  await renderRoleList();
+  renderFrontMappingList();
+  renderCopiesList();
+}
+
+async function handleConfigSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  try {
+    const config = JSON.parse(await file.text());
+    if (!config || typeof config !== "object" || config.version !== 1) {
+      throw new Error("Unsupported impose JSON format.");
+    }
+    pendingImposeConfig = config;
+    $("#config-file-name").textContent = file.name;
+    if (loadedPdfBytes) {
+      await applyImposeConfig(config);
+      log(`Applied settings: ${file.name}`);
+    } else {
+      log(`Settings ready: ${file.name}. Load the matching PDF.`);
+    }
+  } catch (error) {
+    pendingImposeConfig = null;
+    $("#config-file-name").textContent = "Invalid settings file";
+    log(`Error loading settings: ${error.message}`);
+  }
+}
+
+function downloadImposeConfig() {
+  if (!loadedPdfBytes) return;
+  const config = buildImposeConfig();
+  const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const baseName = loadedPdfName.replace(/\.pdf$/i, "") || "cards";
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${baseName}_impose.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function applyAllCopies() {
@@ -970,25 +1078,7 @@ function applyAllCopies() {
   frontMappings.forEach((mapping) => {
     mapping.copies = copies;
   });
-  renderFrontMappingList();
-}
-
-function setRolePreset(mode) {
-  pageInfos.forEach((info) => {
-    if (mode === "all-front") {
-      info.role = "front";
-    } else {
-      info.role = info.pageNumber % 2 === 0 ? "back" : "front";
-    }
-  });
-  recalculateFrontMappings();
-  if (mode === "odd-even") {
-    $("#back-assignment-mode").value = "next-page";
-    applyBackAssignmentMode();
-  }
-  refreshBackAssetControls();
-  updateAutoCardSize();
-  renderRoleList().then(renderFrontMappingList);
+  renderCopiesList();
 }
 
 function buildOutputItems(kind) {
@@ -998,7 +1088,7 @@ function buildOutputItems(kind) {
     for (let i = 0; i < copies; i += 1) {
       if (kind === "front") {
         items.push({ type: "pdf", pageIndex: mapping.pageIndex });
-      } else if (mapping.backRef === "default") {
+      } else if (mapping.backRef === "none") {
         items.push({ type: "defaultBack" });
       } else {
         const pageNumber = Number.parseInt(mapping.backRef.replace("back:", ""), 10);
@@ -1015,7 +1105,7 @@ function buildPnpItems() {
     const copies = Math.max(0, mapping.copies || 0);
     for (let i = 0; i < copies; i += 1) {
       items.push({ type: "pdf", pageIndex: mapping.pageIndex });
-      if (mapping.backRef !== "default") {
+      if (mapping.backRef !== "none") {
         const pageNumber = Number.parseInt(mapping.backRef.replace("back:", ""), 10);
         items.push({ type: "pdf", pageIndex: pageNumber - 1 });
       }
@@ -1025,8 +1115,25 @@ function buildPnpItems() {
 }
 
 async function renderCardInfoImage(cardWidthMm, cardHeightMm) {
-  const pairs = frontMappings.filter((mapping) => Math.max(0, mapping.copies || 0) > 0);
-  if (pairs.length === 0) throw new Error("No card info to render.");
+  const pairs = frontMappings.filter(
+    (mapping) => mapping.backRef !== "none" && Math.max(0, mapping.copies || 0) > 0
+  );
+  if (pairs.length === 0) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 480;
+    canvas.height = 96;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#64748b";
+    ctx.font = "14px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("No front/back mappings.", canvas.width / 2, canvas.height / 2);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw new Error("Failed to create card info image.");
+    return blob;
+  }
 
   const cols = Math.min(3, pairs.length);
   const thumbW = CARD_INFO_THUMB_WIDTH_PX;
@@ -1075,8 +1182,8 @@ async function renderCardInfoImage(cardWidthMm, cardHeightMm) {
 
     const frontCanvas = await renderAssetCanvas({ type: "pdf", pageIndex: mapping.pageIndex }, thumbW, thumbH);
     const backAsset =
-      mapping.backRef === "default"
-        ? { type: "defaultBack" }
+      mapping.backRef === "none"
+        ? { type: "noBack" }
         : { type: "pdf", pageIndex: Number.parseInt(mapping.backRef.replace("back:", ""), 10) - 1 };
     const backCanvas = await renderAssetCanvas(backAsset, thumbW, thumbH);
 
@@ -1089,7 +1196,11 @@ async function renderCardInfoImage(cardWidthMm, cardHeightMm) {
     ctx.fillStyle = "#111827";
     ctx.font = "700 10px Arial";
     ctx.fillText("Front", frontX, thumbY + thumbH + 14);
-    ctx.fillText(mapping.backRef === "default" ? "Default Back" : "Back", backX, thumbY + thumbH + 14);
+    ctx.fillText(
+      mapping.backRef === "none" ? "No Back" : "Back",
+      backX,
+      thumbY + thumbH + 14
+    );
     ctx.fillStyle = "#64748b";
     ctx.font = "9px Arial";
     ctx.fillText(`Page ${mapping.sourcePageNumber}`, frontX, thumbY + thumbH + 27);
@@ -1130,7 +1241,7 @@ function renderGuide(values) {
     ["Number", String(values.number)],
     ["Unique Backs", "true"],
     ["Back is Hidden", "false"],
-    ["Default Back Used", values.defaultBackUsed ? "true" : "false"],
+    ["Default Back Cards", String(values.noBackCount)],
   ].forEach(([key, value]) => {
     const dt = document.createElement("dt");
     dt.textContent = key;
@@ -1206,6 +1317,7 @@ async function handleFileSelect(event) {
   $("#preview-section").hidden = true;
   $("#file-name").textContent = file.name;
   $("#output-prefix").value = file.name.replace(/\.pdf$/i, "") || "cards";
+  loadedPdfName = file.name;
   cardSizeTouched = false;
 
   try {
@@ -1218,17 +1330,32 @@ async function handleFileSelect(event) {
       pageNumber: index + 1,
       widthPt: page.getWidth(),
       heightPt: page.getHeight(),
-      role: "front",
+      role: "front-no-back",
     }));
 
     updateAutoCardSize(true);
-    await renderRoleList();
-    recalculateFrontMappings();
-    refreshBackAssetControls();
-    renderFrontMappingList();
+    if (pendingImposeConfig) {
+      try {
+        await applyImposeConfig(pendingImposeConfig);
+        log(`Applied settings for: ${pendingImposeConfig.pdfName || "saved PDF"}`);
+      } catch (configError) {
+        log(`Settings not applied: ${configError.message}`);
+        await renderRoleList();
+        recalculateFrontMappings();
+        renderFrontMappingList();
+        renderCopiesList();
+      }
+    } else {
+      await renderRoleList();
+      recalculateFrontMappings();
+      renderFrontMappingList();
+      renderCopiesList();
+    }
 
     $("#page-role-section").hidden = false;
     $("#front-mapping-section").hidden = false;
+    $("#copies-section").hidden = false;
+    $("#config-save-section").hidden = false;
     $("#export-settings").hidden = false;
     $("#generate-btn").disabled = false;
 
@@ -1240,6 +1367,7 @@ async function handleFileSelect(event) {
     sourcePdfjsDoc = null;
     pageInfos = [];
     frontMappings = [];
+    loadedPdfName = "";
     $("#generate-btn").disabled = true;
     log(`Error loading PDF: ${error.message}`);
   }
@@ -1268,6 +1396,10 @@ async function handleGenerate() {
   try {
     const { widthMm, heightMm, source } = getCardSizeMm();
     const [sheetW, sheetH] = getPageSizePt();
+    const unassignedMapping = frontMappings.find((mapping) => mapping.backRef === "unassigned");
+    if (unassignedMapping) {
+      throw new Error(`Assign a Back Asset to Front #${unassignedMapping.frontIndex}, or move it to Front (No Back).`);
+    }
     const frontItems = buildOutputItems("front");
     const backItems = buildOutputItems("back");
     const pnpItems = buildPnpItems();
@@ -1331,7 +1463,7 @@ async function handleGenerate() {
       width: cols,
       height: rows,
       number: totalCards,
-      defaultBackUsed: frontMappings.some((mapping) => mapping.backRef === "default"),
+      noBackCount: frontMappings.filter((mapping) => mapping.backRef === "none").length,
     });
     renderTtsResults(ttsResults);
     $("#tts-results").classList.remove("hidden");
@@ -1349,13 +1481,11 @@ async function handleGenerate() {
 
 document.addEventListener("DOMContentLoaded", () => {
   showEnvironmentWarning();
+  $("#config-input").addEventListener("change", handleConfigSelect);
   $("#input-pdf").addEventListener("change", handleFileSelect);
+  $("#save-config").addEventListener("click", downloadImposeConfig);
   $("#generate-btn").addEventListener("click", handleGenerate);
   $("#apply-all-copies").addEventListener("click", applyAllCopies);
-  $("#mark-all-front").addEventListener("click", () => setRolePreset("all-front"));
-  $("#mark-even-back").addEventListener("click", () => setRolePreset("odd-even"));
-  $("#apply-back-assignment").addEventListener("click", applyBackAssignmentMode);
-  $("#back-assignment-mode").addEventListener("change", refreshBackAssetControls);
   $("#card-width").addEventListener("input", () => {
     cardSizeTouched = true;
   });

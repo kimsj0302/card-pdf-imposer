@@ -18,11 +18,22 @@
 
     <main>
       <form id="studio-form" onsubmit="return false;">
+        <section class="form-section config-load-section">
+          <h2>Load Settings</h2>
+          <div class="form-row">
+            <label for="config-input">Impose JSON</label>
+            <div class="file-input-wrapper">
+              <input type="file" id="config-input" accept=".json,application/json">
+              <span id="config-file-name" class="file-name">No settings selected</span>
+            </div>
+          </div>
+        </section>
+
         <section class="form-section">
           <div class="section-title-row">
             <div>
               <h2>1. Cards</h2>
-              <p class="helper-text">Load a card PDF, then drag pages into Front, Back Asset, or Exclude.</p>
+              <p class="helper-text">Load a card PDF, then drag pages into Front, Front (No Back), Back Asset, or Exclude.</p>
             </div>
           </div>
 
@@ -35,45 +46,34 @@
           </div>
 
           <div id="page-role-section" hidden>
-            <div class="quick-actions">
-              <button type="button" id="mark-all-front" class="btn-secondary">All front</button>
-              <button type="button" id="mark-even-back" class="btn-secondary">Odd front / even back</button>
-            </div>
             <div id="role-list" class="role-board"></div>
           </div>
         </section>
 
         <section class="form-section" id="front-mapping-section" hidden>
           <h2>2. Front and Back Mapping</h2>
-          <p class="helper-text">Apply a back-matching rule first, then adjust only the exceptions below.</p>
-          <div class="mapping-tools">
-            <div class="form-row">
-              <label for="back-assignment-mode">Back matching</label>
-              <select id="back-assignment-mode">
-                <option value="default">Use default back for every card</option>
-                <option value="first-back">Use the first Back Asset for every card</option>
-                <option value="next-page">Use each front's next PDF page</option>
-                <option value="back-order">Match front order to Back Asset order</option>
-              </select>
-            </div>
-            <div class="form-row" id="single-back-row" hidden>
-              <label for="single-back-select">Back asset</label>
-              <select id="single-back-select"></select>
-            </div>
-            <button type="button" id="apply-back-assignment" class="btn-secondary">Apply matching rule</button>
-          </div>
           <div id="mapping-list"></div>
+        </section>
+
+        <section class="form-section" id="copies-section" hidden>
+          <h2>3. Copies</h2>
           <div class="form-row copies-bulk">
-            <label>Set all copies</label>
+            <label>Set all</label>
             <div class="inline-controls">
               <input type="number" id="set-all-copies" min="0" value="1" style="width:70px;">
               <button type="button" id="apply-all-copies" class="btn-secondary">Apply</button>
             </div>
           </div>
+          <div id="copies-list" class="copies-list"></div>
+        </section>
+
+        <section class="form-section" id="config-save-section" hidden>
+          <h2>4. Save Settings</h2>
+          <button type="button" id="save-config" class="btn-secondary">Download impose JSON</button>
         </section>
 
         <section class="form-section settings-panel" id="export-settings" hidden>
-          <h2>3. Output Settings</h2>
+          <h2>5. Output Settings</h2>
 
           <div class="settings-grid">
             <section class="settings-group">
