@@ -5,6 +5,7 @@
 This repository is a static browser app for card PDF preparation.
 
 - `index.html`, `app.js`, and `style.css` implement the PDF imposition UI.
+- `card-imposer.mjs` implements the command-line card sheet generator used by Project6388.
 - `tts.html` and `tts.js` implement Tabletop Simulator deck sheet export.
 - `back_default.png` is the default card-back image used by the TTS exporter.
 - `.github/workflows/static.yml` deploys the static site to GitHub Pages.
@@ -35,6 +36,7 @@ Useful verification commands:
 ```powershell
 node --check app.js
 node --check tts.js
+node --check card-imposer.mjs
 ```
 
 If you change UI behavior, verify both pages manually:
