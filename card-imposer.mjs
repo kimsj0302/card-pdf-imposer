@@ -29,19 +29,21 @@ const ttsCols = 10;
 const ttsRows = 7;
 
 if (!existsSync(csvPath)) throw new Error(`Missing ${csvPath}`);
-if (!existsSync(manifestPath)) throw new Error(`Missing ${manifestPath}`);
 
 const rows = parseCsv(await readFile(csvPath, "utf8"));
-const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const manifest = existsSync(manifestPath) ? JSON.parse(await readFile(manifestPath, "utf8")) : null;
+if (!manifest && rows.some((row) => !row.svg_file)) throw new Error(`Missing ${manifestPath} or svg_file column`);
 const backPng = await readFile(path.join("submodules", "card-printing", "back_default.png"));
-const rawByKey = rawFileIndex(manifest);
+const rawByKey = manifest ? rawFileIndex(manifest) : new Map();
 const cards = [];
 
 for (const row of rows) {
   const quantity = Number.parseInt(row.quantity || "0", 10);
-  const rawFile = rawByKey.get(`${row.template_id}:${row.label}`);
-  if (!rawFile) throw new Error(`No raw SVG for ${row.template_id}:${row.label}`);
-  const svg = await readFile(path.join(path.dirname(manifestPath), rawFile), "utf8");
+  const svgPath = row.svg_file
+    ? path.join(root, "svg", row.svg_file)
+    : path.join(path.dirname(manifestPath), rawByKey.get(`${row.template_id}:${row.label}`) || "");
+  if (!existsSync(svgPath)) throw new Error(`Missing SVG for ${row.template_id}:${row.label}`);
+  const svg = await readFile(svgPath, "utf8");
   for (let index = 0; index < quantity; index += 1) cards.push({ ...row, svg });
 }
 
