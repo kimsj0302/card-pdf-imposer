@@ -39,19 +39,16 @@ const cards = [];
 
 for (const row of rows) {
   const quantity = Number.parseInt(row.quantity || "0", 10);
-  const svgPath = row.svg_file
-    ? path.join(root, "svg", row.svg_file)
-    : path.join(path.dirname(manifestPath), rawByKey.get(`${row.template_id}:${row.label}`) || "");
-  if (!existsSync(svgPath)) throw new Error(`Missing SVG for ${row.template_id}:${row.label}`);
-  const svg = await readFile(svgPath, "utf8");
-  for (let index = 0; index < quantity; index += 1) cards.push({ ...row, svg });
+  const svg = await readCardSvg(row, row.label);
+  const backSvg = row.back_label ? await readCardSvg(row, row.back_label) : null;
+  for (let index = 0; index < quantity; index += 1) cards.push({ ...row, svg, backSvg });
 }
 
 await mkdir(outDir, { recursive: true });
 await writeFile(backPath, backPng);
 await writeFile(htmlPath, renderHtml(codename, cards), "utf8");
 const frontSheets = await renderSheets(cards.map((card) => card.svg), "front_sheet");
-const backSheets = await renderSheets(cards.map(() => backPng), "back_sheet");
+const backSheets = await renderSheets(cards.map((card) => card.backSvg || backPng), "back_sheet");
 await writeFile(cardInfoPath, await renderCardInfo(cards, backPng));
 await writeFile(teaserPath, await renderTeaser(cards));
 
@@ -102,6 +99,14 @@ function rawFileIndex(manifest) {
   return index;
 }
 
+async function readCardSvg(row, label) {
+  const svgPath = row.svg_file
+    ? path.join(root, "svg", row.svg_file)
+    : path.join(path.dirname(manifestPath), rawByKey.get(`${row.template_id}:${label}`) || "");
+  if (!existsSync(svgPath)) throw new Error(`Missing SVG for ${row.template_id}:${label}`);
+  return readFile(svgPath, "utf8");
+}
+
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   const headers = splitCsvLine(lines.shift());
@@ -131,7 +136,11 @@ function splitCsvLine(line) {
 }
 
 function renderHtml(codename, cards) {
-  const items = cards.map((card) => `<article class="card" title="${esc(`${card.card_type} ${card.label}`)}">${card.svg}</article>`);
+  const items = cards.flatMap((card) => [
+    `<article class="card" title="${esc(`${card.card_type} ${card.label}`)}">${card.svg}</article>`,
+    ...(card.backSvg ? [`<article class="card" title="${esc(`${card.card_type} ${card.back_label}`)}">${card.backSvg}</article>`] : []),
+  ]);
+  const sheets = chunk(items, 9).map((sheet) => `<section class="sheet">${sheet.join("")}</section>`);
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -159,10 +168,11 @@ function renderHtml(codename, cards) {
       background: white;
     }
     .card svg { display: block; width: 63mm; height: 88mm; }
+    .card.blank { outline: none; }
   </style>
 </head>
 <body>
-${chunk(items, 9).map((sheet) => `<section class="sheet">${sheet.join("")}</section>`).join("\n")}
+${sheets.join("\n")}
 </body>
 </html>
 `;
@@ -206,7 +216,6 @@ async function renderCardInfo(cards, backPng) {
   const headerH = 48;
   const canvas = createCanvas(pad * 2 + cols * pairW + (cols - 1) * gap, pad * 2 + headerH + Math.ceil(pairs.length / cols) * pairH + (Math.ceil(pairs.length / cols) - 1) * gap);
   const ctx = canvas.getContext("2d");
-  const back = await loadImage(backPng);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#111827";
@@ -217,6 +226,7 @@ async function renderCardInfo(cards, backPng) {
     const row = pairs[index];
     const card = cards.find((item) => item.card_id === row.card_id);
     const image = await loadImage(Buffer.from(card.svg));
+    const back = await loadImage(Buffer.from(card.backSvg || backPng));
     const x = pad + (index % cols) * (pairW + gap);
     const y = pad + headerH + Math.floor(index / cols) * (pairH + gap);
     ctx.fillStyle = "#111827";
@@ -229,7 +239,10 @@ async function renderCardInfo(cards, backPng) {
 }
 
 async function renderTeaser(cards) {
-  const uniqueCards = diverseCards(cards);
+  const backCards = cards
+    .filter((card) => isTrue(card.teaser_back) && card.backSvg)
+    .map((card) => ({ ...card, label: card.back_label, card_type: "back", svg: card.backSvg }));
+  const uniqueCards = [...diverseCards(backCards), ...diverseCards(cards)].slice(0, 12);
   const canvas = createCanvas(1600, 1200);
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#f4f1ea";
@@ -266,6 +279,10 @@ async function renderTeaser(cards) {
   }
 
   return canvas.toBuffer("image/png");
+}
+
+function isTrue(value) {
+  return ["1", "true", "yes", "y"].includes(String(value || "").trim().toLowerCase());
 }
 
 function diverseCards(cards) {
