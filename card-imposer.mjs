@@ -39,8 +39,8 @@ const cards = [];
 
 for (const row of rows) {
   const quantity = Number.parseInt(row.quantity || "0", 10);
-  const svg = await readCardSvg(row, row.label);
-  const backSvg = row.back_label ? await readCardSvg(row, row.back_label) : null;
+  const svg = await readCardAsset(row, row.label);
+  const backSvg = row.back_label ? await readCardAsset(row, row.back_label) : null;
   for (let index = 0; index < quantity; index += 1) cards.push({ ...row, svg, backSvg });
 }
 
@@ -99,7 +99,9 @@ function rawFileIndex(manifest) {
   return index;
 }
 
-async function readCardSvg(row, label) {
+async function readCardAsset(row, label) {
+  const pngFile = label === row.back_label ? row.back_png_file : row.png_file;
+  if (pngFile) return readFile(path.join(root, "png", pngFile));
   const svgPath = row.svg_file
     ? path.join(root, "svg", row.svg_file)
     : path.join(path.dirname(manifestPath), rawByKey.get(`${row.template_id}:${label}`) || "");
@@ -137,8 +139,8 @@ function splitCsvLine(line) {
 
 function renderHtml(codename, cards) {
   const items = cards.flatMap((card) => [
-    `<article class="card" title="${esc(`${card.card_type} ${card.label}`)}">${card.svg}</article>`,
-    ...(card.backSvg ? [`<article class="card" title="${esc(`${card.card_type} ${card.back_label}`)}">${card.backSvg}</article>`] : []),
+    `<article class="card" title="${esc(`${card.card_type} ${card.label}`)}">${renderCardAsset(card.svg)}</article>`,
+    ...(card.backSvg ? [`<article class="card" title="${esc(`${card.card_type} ${card.back_label}`)}">${renderCardAsset(card.backSvg)}</article>`] : []),
   ]);
   const sheets = chunk(items, 9).map((sheet) => `<section class="sheet">${sheet.join("")}</section>`);
   return `<!doctype html>
@@ -167,7 +169,7 @@ function renderHtml(codename, cards) {
       outline: .15mm solid rgb(0 0 0 / .32);
       background: white;
     }
-    .card svg { display: block; width: 63mm; height: 88mm; }
+    .card svg, .card img { display: block; width: 63mm; height: 88mm; }
     .card.blank { outline: none; }
   </style>
 </head>
@@ -176,6 +178,11 @@ ${sheets.join("\n")}
 </body>
 </html>
 `;
+}
+
+function renderCardAsset(asset) {
+  if (!Buffer.isBuffer(asset)) return asset;
+  return `<img src="data:image/png;base64,${asset.toString("base64")}" alt="">`;
 }
 
 async function renderSheets(items, prefix) {
