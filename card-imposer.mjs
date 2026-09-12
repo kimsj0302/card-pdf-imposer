@@ -103,7 +103,7 @@ async function readCardAsset(row, label) {
   const pngFile = label === row.back_label ? row.back_png_file : row.png_file;
   if (pngFile) return readFile(path.join(root, "png", pngFile));
   const svgPath = row.svg_file
-    ? path.join(root, "svg", row.svg_file)
+    ? [path.join(root, "svg", row.svg_file), path.join(root, "fronts", row.svg_file)].find(existsSync) || path.join(root, "svg", row.svg_file)
     : path.join(path.dirname(manifestPath), rawByKey.get(`${row.template_id}:${label}`) || "");
   if (!existsSync(svgPath)) throw new Error(`Missing SVG for ${row.template_id}:${label}`);
   return readFile(svgPath, "utf8");
@@ -181,8 +181,13 @@ ${sheets.join("\n")}
 }
 
 function renderCardAsset(asset) {
-  if (!Buffer.isBuffer(asset)) return asset;
-  return `<img src="data:image/png;base64,${asset.toString("base64")}" alt="">`;
+  return `<img src="${cardAssetSrc(asset)}" alt="">`;
+}
+
+function cardAssetSrc(asset) {
+  return Buffer.isBuffer(asset)
+    ? `data:image/png;base64,${asset.toString("base64")}`
+    : `data:image/svg+xml;base64,${Buffer.from(asset).toString("base64")}`;
 }
 
 async function renderSheets(items, prefix) {
@@ -198,10 +203,8 @@ async function renderSheets(items, prefix) {
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
     for (let index = 0; index < sheet.length; index += 1) {
-      const image = await loadImage(Buffer.isBuffer(sheet[index]) ? sheet[index] : Buffer.from(sheet[index]));
-      drawFit(ctx, image, (index % ttsCols) * cardW, Math.floor(index / ttsCols) * cardH, cardW, cardH);
+      await drawSvgCard(ctx, sheet[index], (index % ttsCols) * cardW, Math.floor(index / ttsCols) * cardH, cardW, cardH);
     }
     const filename = `${prefix}_${files.length + 1}.png`;
     const data = canvas.toBuffer("image/png");
@@ -209,6 +212,21 @@ async function renderSheets(items, prefix) {
     files.push({ filename, data });
   }
   return files;
+}
+
+async function drawSvgCard(ctx, asset, x, y, width, height) {
+  const svg = Buffer.isBuffer(asset) ? "" : asset;
+  drawFit(ctx, await loadImage(Buffer.isBuffer(asset) ? asset : Buffer.from(asset)), x, y, width, height);
+  const icon = svg.match(/<image href="data:image\/svg\+xml;base64,([^"]+)" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/);
+  if (icon) drawFit(ctx, await loadImage(Buffer.from(icon[1], "base64")), x + Number(icon[2]) / 630 * width, y + Number(icon[3]) / 880 * height, Number(icon[4]) / 630 * width, Number(icon[5]) / 880 * height);
+  for (const text of svg.matchAll(/<text x="([\d.]+)" y="([\d.]+)" fill="([^"]+)"[^>]*font-size="([\d.]+)" font-weight="(\d+)"[^>]*>([^<]+)<\/text>/g)) {
+    ctx.save();
+    ctx.fillStyle = text[3];
+    ctx.font = `${text[5]} ${Number(text[4]) / 630 * width}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillText(text[6], x + Number(text[1]) / 630 * width, y + Number(text[2]) / 880 * height);
+    ctx.restore();
+  }
 }
 
 async function renderCardInfo(cards, backPng) {
@@ -232,15 +250,13 @@ async function renderCardInfo(cards, backPng) {
   for (let index = 0; index < pairs.length; index += 1) {
     const row = pairs[index];
     const card = cards.find((item) => item.card_id === row.card_id);
-    const image = await loadImage(Buffer.from(card.svg));
-    const back = await loadImage(Buffer.from(card.backSvg || backPng));
     const x = pad + (index % cols) * (pairW + gap);
     const y = pad + headerH + Math.floor(index / cols) * (pairH + gap);
     ctx.fillStyle = "#111827";
     ctx.font = "16px Arial";
     ctx.fillText(`${row.label} x${row.quantity}`, x, y + 20);
-    drawFit(ctx, image, x + 10, y + 42, thumbW, thumbH);
-    drawFit(ctx, back, x + 10 + thumbW + 44, y + 42, thumbW, thumbH);
+    await drawSvgCard(ctx, card.svg, x + 10, y + 42, thumbW, thumbH);
+    await drawSvgCard(ctx, card.backSvg || backPng, x + 10 + thumbW + 44, y + 42, thumbW, thumbH);
   }
   return canvas.toBuffer("image/png");
 }
@@ -266,11 +282,9 @@ async function renderTeaser(cards) {
   const rowsCount = 5;
   const totalW = cols * cardW + (cols - 1) * gap;
   const totalH = rowsCount * cardH + (rowsCount - 1) * gap;
-  const images = await Promise.all(uniqueCards.map((card) => loadImage(Buffer.from(card.svg))));
-
   for (let row = 0; row < rowsCount; row += 1) {
     for (let col = 0; col < cols; col += 1) {
-      const image = images[(row * cols + col) % images.length];
+      const card = uniqueCards[(row * cols + col) % uniqueCards.length];
       const x = col * stepX - totalW / 2 + (row % 2 ? stepX / 2 : 0);
       const y = row * stepY - totalH / 2;
     ctx.save();
@@ -281,7 +295,7 @@ async function renderTeaser(cards) {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(x, y, cardW, cardH);
     ctx.restore();
-    drawFit(ctx, image, x, y, cardW, cardH);
+    await drawSvgCard(ctx, card.svg, x, y, cardW, cardH);
     }
   }
 
