@@ -32,7 +32,7 @@ if (!existsSync(csvPath)) throw new Error(`Missing ${csvPath}`);
 
 const rows = parseCsv(await readFile(csvPath, "utf8"));
 const manifest = existsSync(manifestPath) ? JSON.parse(await readFile(manifestPath, "utf8")) : null;
-if (!manifest && rows.some((row) => !row.svg_file)) throw new Error(`Missing ${manifestPath} or svg_file column`);
+if (!manifest && rows.some((row) => !row.svg_file && !row.png_file)) throw new Error(`Missing ${manifestPath} or svg_file column`);
 const backPng = await readFile(path.join("submodules", "card-printing", "back_default.png"));
 const rawByKey = manifest ? rawFileIndex(manifest) : new Map();
 const cards = [];
@@ -261,10 +261,13 @@ async function renderCardInfo(cards, backPng) {
 }
 
 async function renderTeaser(cards) {
+  const cols = 7;
+  const rowsCount = 5;
+  const maxVisibleCards = cols * rowsCount;
   const backCards = cards
     .filter((card) => isTrue(card.teaser_back) && card.backSvg)
     .map((card) => ({ ...card, label: card.back_label, card_type: "back", svg: card.backSvg }));
-  const uniqueCards = [...diverseCards(backCards), ...diverseCards(cards)].slice(0, 12);
+  const uniqueCards = [...diverseCards(backCards, maxVisibleCards), ...diverseCards(cards, maxVisibleCards)].slice(0, maxVisibleCards);
   const canvas = createCanvas(1600, 1200);
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#f4f1ea";
@@ -277,8 +280,6 @@ async function renderTeaser(cards) {
   const gap = 16;
   const stepX = cardW + gap;
   const stepY = cardH + gap;
-  const cols = 7;
-  const rowsCount = 5;
   const totalW = cols * cardW + (cols - 1) * gap;
   const totalH = rowsCount * cardH + (rowsCount - 1) * gap;
   for (let row = 0; row < rowsCount; row += 1) {
@@ -305,7 +306,7 @@ function isTrue(value) {
   return ["1", "true", "yes", "y"].includes(String(value || "").trim().toLowerCase());
 }
 
-function diverseCards(cards) {
+function diverseCards(cards, limit = 12) {
   const groups = new Map();
   for (const card of new Map(cards.map((item) => [`${item.template_id}:${item.label}`, item])).values()) {
     const key = card.card_type || card.template_id || "card";
@@ -314,7 +315,7 @@ function diverseCards(cards) {
   }
   const values = [...groups.values()];
   const selected = [];
-  for (let index = 0; selected.length < 12 && values.some((group) => index < group.length); index += 1) {
+  for (let index = 0; selected.length < limit && values.some((group) => index < group.length); index += 1) {
     for (const group of values) {
       if (group[index]) selected.push(group[index]);
     }
