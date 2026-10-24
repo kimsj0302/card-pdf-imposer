@@ -138,10 +138,9 @@ function splitCsvLine(line) {
 }
 
 function renderHtml(codename, cards) {
-  const items = cards.flatMap((card) => [
+  const items = cards.map((card) =>
     `<article class="card" title="${esc(`${card.card_type} ${card.label}`)}">${renderCardAsset(card.svg)}</article>`,
-    ...(card.backSvg ? [`<article class="card" title="${esc(`${card.card_type} ${card.back_label}`)}">${renderCardAsset(card.backSvg)}</article>`] : []),
-  ]);
+  );
   const sheets = chunk(items, 9).map((sheet) => `<section class="sheet">${sheet.join("")}</section>`);
   return `<!doctype html>
 <html lang="ko">
